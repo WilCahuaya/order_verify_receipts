@@ -9,8 +9,13 @@ export function normalizeComprobante(comprobante: string): string {
   // Regex para detectar formato SERIE-CORRELATIVO (letras/números - números)
   const match = normalized.match(/^([A-Za-z0-9]+)-(\d+)$/);
   if (match) {
-    const serie = match[1].replace(/^0+/, "") || "0"; // Eliminar ceros a la izquierda de serie
-    const correlativo = match[2].replace(/^0+/, "") || "0"; // Eliminar ceros a la izquierda de correlativo
+    // Serie: puede ser E001, E0001 - quitar ceros de la parte numérica
+    const serieRaw = match[1];
+    const serieMatch = serieRaw.match(/^([A-Za-z]*)(\d*)$/);
+    const serie = serieMatch
+      ? serieMatch[1] + (serieMatch[2] ? String(parseInt(serieMatch[2], 10) || 0) : "")
+      : serieRaw.replace(/^0+/, "") || "0";
+    const correlativo = match[2].replace(/^0+/, "") || "0";
     return `${serie}-${correlativo}`;
   }
 

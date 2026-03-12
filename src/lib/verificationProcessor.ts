@@ -12,10 +12,10 @@ import type {
   ResultadoVerificacion,
 } from "./types";
 
-// Configurar worker de pdfjs (CDN para compatibilidad con Next.js)
+// Configurar worker de pdfjs (unpkg para compatibilidad con Vercel/Next.js)
 function initPdfWorker() {
   if (typeof window !== "undefined" && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
   }
 }
 

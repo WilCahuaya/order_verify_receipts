@@ -1,4 +1,11 @@
-import { VerificationProcessor } from "@/components/VerificationProcessor";
+"use client";
+
+import dynamic from "next/dynamic";
+
+const VerificationProcessor = dynamic(
+  () => import("@/components/VerificationProcessor").then((mod) => mod.VerificationProcessor),
+  { ssr: false }
+);
 
 export default function Home() {
   return (
