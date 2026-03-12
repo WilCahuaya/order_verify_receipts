@@ -66,7 +66,7 @@ export async function processVerification(
       const page = await pdfDoc.getPage(pageNum);
       const textContent = await page.getTextContent();
       const textItems = textContent.items
-        .map((item: { str?: string }) => ("str" in item ? item.str : ""))
+        .map((item) => ("str" in item ? (item as { str: string }).str : ""))
         .join(" ");
       if (textItems.trim().length > 20) {
         pageText = textItems;
