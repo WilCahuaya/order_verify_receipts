@@ -87,6 +87,7 @@ export async function processVerification(
       canvas.width = viewport.width;
       await page.render({
         canvasContext: context,
+        canvas,
         viewport,
       }).promise;
 
