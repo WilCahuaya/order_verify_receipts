@@ -29,19 +29,25 @@ export async function generateVerificationExcel(
   const resultadoMap = new Map<string, ResultadoVerificacion>();
   resultados.forEach((r) => resultadoMap.set(r.comprobante, r));
 
-  // Encontrar columna de serie (para colorear)
-  let serieCol = 1;
+  // Encontrar columna de serie (para colorear) - priorizar "Serie del CDP"
+  let serieCol = -1;
   for (let c = 1; c <= 20; c++) {
     const val = headerRow.getCell(c).value?.toString() || "";
-    if (
-      val.toLowerCase().includes("nro cp") ||
-      val.toLowerCase().includes("serie") ||
-      val.toLowerCase().includes("doc. nro")
-    ) {
+    if (val.toLowerCase().includes("serie del cdp") || val.toLowerCase().includes("serie")) {
       serieCol = c;
       break;
     }
   }
+  if (serieCol === -1) {
+    for (let c = 1; c <= 20; c++) {
+      const val = headerRow.getCell(c).value?.toString() || "";
+      if (val.toLowerCase().includes("nro cp") || val.toLowerCase().includes("doc. nro")) {
+        serieCol = c;
+        break;
+      }
+    }
+  }
+  if (serieCol === -1) serieCol = 1;
 
   // Rellenar datos
   resultados.forEach((resultado, idx) => {

@@ -4,27 +4,33 @@ import type { ComprobanteExcel } from "./types";
 
 const COLUMN_MAPPINGS = {
   serie: [
-    "Nro CP o Doc. Nro Inicial (Rango)",
-    "Nro CP o Doc. Nro Inicial",
+    "Serie del CDP",
     "Serie",
+    "Nro CP o Doc. Nro Inicial (Rango)",
     "serie",
   ],
   correlativo: [
-    "Tipo Doc Identidad",
+    "Nro CP o Doc. Nro Inicial (Rango)",
+    "Nro Final (Rango)",
     "Correlativo",
     "correlativo",
   ],
   fecha: [
+    "Fecha de Emision",
     "Fecha Emision Doc",
+    "Fecha de Cancelacion",
     "Fecha Emision",
     "Fecha",
     "fecha",
   ],
   importe: [
-    "Tipo de Cambio",
     "Importe Total",
     "importe total",
     "Total",
+    "Tipo de Cambio",
+    "Valor Adq. NG",
+    "BI Gravado DNG",
+    "Total Ventas",
   ],
 };
 
@@ -81,7 +87,14 @@ export async function readComprobantesFromExcel(file: File): Promise<Comprobante
 
   if (serieCol === -1 || correlativoCol === -1) {
     throw new Error(
-      "No se encontraron las columnas requeridas. Asegúrese de que el Excel tenga 'Nro CP o Doc. Nro Inicial (Rango)' y 'Tipo Doc Identidad'"
+      "No se encontraron las columnas requeridas. Asegúrese de que el Excel tenga 'Serie del CDP' (o 'Serie') y 'Nro CP o Doc. Nro Inicial (Rango)'"
+    );
+  }
+
+  // Si serie y correlativo apuntan a la misma columna, usar lógica alternativa
+  if (serieCol === correlativoCol) {
+    throw new Error(
+      "Las columnas 'Serie del CDP' y 'Nro CP o Doc. Nro Inicial (Rango)' deben ser diferentes"
     );
   }
 
