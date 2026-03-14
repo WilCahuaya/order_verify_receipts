@@ -24,6 +24,7 @@ const COLUMN_MAPPINGS = {
     "fecha",
   ],
   importe: [
+    "Total CP",
     "Importe Total",
     "importe total",
     "Total",
@@ -40,12 +41,39 @@ function findColumnIndex(worksheet: ExcelJS.Worksheet, possibleNames: string[]):
 
   for (let col = 1; col <= 100; col++) {
     const cell = firstRow.getCell(col);
-    const value = cell.value?.toString()?.trim() || "";
-    if (possibleNames.some((name) => value.toLowerCase().includes(name.toLowerCase()))) {
+    const value = cell.value;
+    const str = (typeof value === "object" && value !== null && "text" in value
+      ? String((value as { text: unknown }).text)
+      : String(value ?? "")
+    ).trim();
+    if (possibleNames.some((name) => str.toLowerCase().includes(name.toLowerCase()))) {
       return col;
     }
   }
   return -1;
+}
+
+/**
+ * Extrae el valor de una celda Excel que puede ser:
+ * - string/number directo
+ * - { text: "E001", hyperlink: "..." } (hipervínculos)
+ * - { richText: [...] }
+ * - { formula: "...", result: ... }
+ */
+function getCellValue(value: unknown): string | number {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string" || typeof value === "number") return value;
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    if ("text" in obj && obj.text !== undefined) return String(obj.text);
+    if ("result" in obj && obj.result !== undefined) return obj.result as string | number;
+    if ("richText" in obj && Array.isArray(obj.richText)) {
+      return (obj.richText as Array<{ text?: string }>)
+        .map((t) => t.text ?? "")
+        .join("");
+    }
+  }
+  return String(value);
 }
 
 function parseDate(value: unknown): string {
@@ -103,8 +131,10 @@ export async function readComprobantesFromExcel(file: File): Promise<Comprobante
 
   for (let row = 2; row <= rowCount; row++) {
     const rowData = worksheet.getRow(row);
-    const serieRaw = rowData.getCell(serieCol).value?.toString()?.trim() || "";
-    const correlativoRaw = rowData.getCell(correlativoCol).value?.toString()?.trim() || "";
+    const serieVal = getCellValue(rowData.getCell(serieCol).value);
+    const correlativoVal = getCellValue(rowData.getCell(correlativoCol).value);
+    const serieRaw = String(serieVal ?? "").trim();
+    const correlativoRaw = String(correlativoVal ?? "").trim();
 
     if (!serieRaw && !correlativoRaw) continue;
 
@@ -112,8 +142,8 @@ export async function readComprobantesFromExcel(file: File): Promise<Comprobante
     const correlativo = correlativoRaw.replace(/^0+/, "") || "0";
     const comprobante = normalizeComprobante(`${serie}-${correlativo}`);
 
-    const fechaEmision = fechaCol !== -1 ? parseDate(rowData.getCell(fechaCol).value) : "";
-    const importeTotal = importeCol !== -1 ? parseNumber(rowData.getCell(importeCol).value) : 0;
+    const fechaEmision = fechaCol !== -1 ? parseDate(getCellValue(rowData.getCell(fechaCol).value)) : "";
+    const importeTotal = importeCol !== -1 ? parseNumber(getCellValue(rowData.getCell(importeCol).value)) : 0;
 
     comprobantes.push({
       serie,
