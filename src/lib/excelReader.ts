@@ -3,16 +3,12 @@ import { normalizeComprobante } from "./normalize";
 import type { ComprobanteExcel } from "./types";
 
 const COLUMN_MAPPINGS = {
-  serie: [
-    "Serie del CDP",
-    "Serie",
-    "Nro CP o Doc. Nro Inicial (Rango)",
-    "serie",
-  ],
+  serie: ["Serie del CDP", "Serie", "serie"],
   correlativo: [
     "Nro CP o Doc. Nro Inicial (Rango)",
     "Nro Final (Rango)",
     "Correlativo",
+    "Nro CP",
     "correlativo",
   ],
   fecha: [

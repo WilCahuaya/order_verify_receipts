@@ -10,6 +10,7 @@ import {
   extractImporteTotal,
   extractRuc,
   extractRazonSocial,
+  extractComprobanteFromLabels,
 } from "./textExtractor";
 import type {
   ComprobanteEncontrado,
@@ -116,19 +117,32 @@ export async function processVerification(
       }
     }
 
-    const encontrados = extractComprobantesFromText(pageText);
+    // 1. Intentar extracción por etiquetas (Serie del CDP, Nro CP, Total CP)
+    const porEtiquetas = extractComprobanteFromLabels(pageText);
+    const importeTotal = extractImporteTotal(pageText);
     const fechas = extractFechas(pageText);
     const importes = extractImportes(pageText);
-    const importeTotal = extractImporteTotal(pageText) || importes[0];
+    const importeFinal = importeTotal || importes[0];
     const ruc = extractRuc(pageText);
     const razonSocial = extractRazonSocial(pageText);
+
+    let encontrados = extractComprobantesFromText(pageText);
+
+    // Si las etiquetas encontraron Serie + Correlativo, priorizar ese comprobante
+    if (porEtiquetas) {
+      const compEtiqueta = normalizeComprobante(`${porEtiquetas.serie}-${porEtiquetas.correlativo}`);
+      const yaExiste = encontrados.some((e) => e.normalized === compEtiqueta);
+      if (!yaExiste) {
+        encontrados = [{ comprobante: compEtiqueta, normalized: compEtiqueta }, ...encontrados];
+      }
+    }
 
     for (const { normalized } of encontrados) {
       const comprobanteEncontrado: ComprobanteEncontrado = {
         comprobante: normalized,
         pagina: pageNum,
         fecha: fechas[0],
-        importe: importeTotal || importes[0],
+        importe: importeFinal,
         ruc: ruc || undefined,
         razonSocial: razonSocial || undefined,
       };
@@ -138,16 +152,18 @@ export async function processVerification(
       comprobantesEncontrados.get(pageNum)!.push(comprobanteEncontrado);
     }
 
-    // Fallback: buscar patrones adicionales en texto limpio
+    // Fallback: patrones estrictos (solo E/F/B, correlativo 2-6 dígitos)
     if (encontrados.length === 0) {
       const fallbackPatterns = [
-        /([EeFfBb][0-9]{2,4})\s*[-]?\s*(\d{2,})/g,
-        /\b([EeFfBb][A-Za-z]?0*[0-9]+)\s+(\d{2,6})\b/g,
+        /([EFBefb][0-9]{2,4})\s*[-]?\s*(\d{2,6})/g,
+        /\b([EFBefb][A-Za-z]?0*[0-9]+)\s+(\d{2,6})\b/g,
       ];
       for (const regex of fallbackPatterns) {
         let m;
         while ((m = regex.exec(pageText)) !== null) {
-          const normalized = normalizeComprobante(`${m[1]}-${m[2]}`);
+          const corr = m[2];
+          if (corr.length >= 8 || parseInt(corr, 10) === 0) continue;
+          const normalized = normalizeComprobante(`${m[1]}-${corr}`);
           if (!comprobantesEncontrados.has(pageNum)) {
             comprobantesEncontrados.set(pageNum, []);
           }
@@ -157,7 +173,7 @@ export async function processVerification(
               comprobante: normalized,
               pagina: pageNum,
               fecha: fechas[0],
-              importe: importeTotal || importes[0],
+              importe: importeFinal,
               ruc: ruc || undefined,
               razonSocial: razonSocial || undefined,
             });

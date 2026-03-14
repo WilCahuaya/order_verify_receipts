@@ -49,16 +49,26 @@ export function extractComprobantesFromText(text: string): Array<{ comprobante: 
     .replace(/Bol(?=-\d)/g, "B01")
     .replace(/E0O1/g, "E001")
     .replace(/F0O1/g, "F001")
-    .replace(/B0O1/g, "B01");
+    .replace(/B0O1/g, "B01")
+    .replace(/([EFBefb])0[Oo]1\b/g, "$1001")
+    .replace(/([EFBefb])0[Oo](\d)/g, "$10$2")
+    .replace(/Serie\s+de[Il1]\s+CDP/gi, "Serie del CDP")
+    .replace(/Tota[Il1]\s+CP/gi, "Total CP");
 
   function addResult(serie: string, correlativo: string) {
     serie = serie.replace(/[rRlI]/g, "1").replace(/O(?=\d)/g, "0");
     correlativo = correlativo.replace(/[lIO]/g, (c) => (c === "O" ? "0" : "1"));
 
-    // Serie: letras+números (E001) O solo números (001, 1) para boletas
-    const serieValida = /^[A-Za-z][A-Za-z0-9]*$/.test(serie) || /^\d+$/.test(serie);
-    if (!serieValida) return;
+    // Serie válida: E/F/B + dígitos (E001, EB01) O solo números (001)
+    const serieAlfanum = /^[EFBefb][A-Za-z]?[0-9]{1,4}$/.test(serie);
+    const serieSoloNum = /^\d{1,4}$/.test(serie);
+    if (!serieAlfanum && !serieSoloNum) return;
+
+    // Correlativo: 2-6 dígitos, no puede ser 0 ni RUC (11 dígitos)
+    const corrNum = parseInt(correlativo, 10);
     if (!/^\d+$/.test(correlativo) || correlativo.length < 2) return;
+    if (corrNum === 0 || correlativo.length > 6) return;
+    if (correlativo.length >= 8) return; // Evitar RUC/DNI (8-11 dígitos)
 
     const raw = `${serie}-${correlativo}`;
     const normalized = normalizeComprobante(raw);
@@ -68,8 +78,8 @@ export function extractComprobantesFromText(text: string): Array<{ comprobante: 
     }
   }
 
-  // Patrón 1: Estándar E001-677, EB01-51
-  const re1 = /([A-Za-z][A-Za-z0-9]*)\s*-\s*(\d+)/g;
+  // Patrón 1: Estándar E001-677, EB01-51 (solo E, F, B)
+  const re1 = /([EFBefb][A-Za-z]?[0-9]{1,4})\s*-\s*(\d{2,6})/g;
   let m;
   while ((m = re1.exec(cleanedText)) !== null) {
     addResult(m[1], m[2]);
@@ -99,10 +109,10 @@ export function extractComprobantesFromText(text: string): Array<{ comprobante: 
     addResult(m[1], m[2]);
   }
 
-  // Patrón 6: FF04, EB01, etc. - series con múltiples letras
-  const re6 = /([A-Za-z]{2,4}0*[0-9]*)\s*[-]?\s*(\d{2,6})/g;
+  // Patrón 6: FF04, EB01 - solo E, F, B como primera letra
+  const re6 = /([EFBefb][A-Za-z][0-9]{1,4})\s*[-]?\s*(\d{2,6})/g;
   while ((m = re6.exec(cleanedText)) !== null) {
-    if (/^[A-Za-z]{2,}[0-9]*$/.test(m[1])) addResult(m[1], m[2]);
+    addResult(m[1], m[2]);
   }
 
   // Patrón 7: "001-Nº 000283" - formato boleta (priorizar correlativo)
@@ -111,10 +121,13 @@ export function extractComprobantesFromText(text: string): Array<{ comprobante: 
     addResult(m[1], m[2]);
   }
 
-  // Patrón 7b: "001-000283" sin Nº (solo números)
+  // Patrón 7b: "001-000283" - correlativo 2-6 dígitos (evitar fechas 001-2024)
   const re7b = /\b(\d{1,4})\s*-\s*0*(\d{2,6})\b/g;
   while ((m = re7b.exec(cleanedText)) !== null) {
-    addResult(m[1], m[2]);
+    const corr = m[2];
+    if (corr.length >= 8) continue; // No RUC
+    if (parseInt(corr, 10) === 0) continue;
+    addResult(m[1], corr);
   }
 
   return results;
