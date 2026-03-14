@@ -75,10 +75,10 @@ export async function processVerification(
       // Ignorar, usaremos OCR
     }
 
-    // Si no hay texto suficiente, usar OCR
+    // Si no hay texto suficiente, usar OCR (scale 3 para mejor precisión en escaneos)
     if (pageText.trim().length < 50) {
       const page = await pdfDoc.getPage(pageNum);
-      const viewport = page.getViewport({ scale: 2 });
+      const viewport = page.getViewport({ scale: 3 });
       const canvas = document.createElement("canvas");
       const context = canvas.getContext("2d");
       if (!context) continue;
@@ -113,23 +113,28 @@ export async function processVerification(
       comprobantesEncontrados.get(pageNum)!.push(comprobanteEncontrado);
     }
 
-    // Si no encontramos comprobantes con el regex estricto, buscar más variantes
+    // Fallback: buscar patrones adicionales en texto limpio
     if (encontrados.length === 0) {
-      const regex2 = /([A-Za-z]\d+)\s*[-–]\s*(\d+)/g;
-      let m;
-      while ((m = regex2.exec(pageText)) !== null) {
-        const normalized = normalizeComprobante(`${m[1]}-${m[2]}`);
-        if (!comprobantesEncontrados.has(pageNum)) {
-          comprobantesEncontrados.set(pageNum, []);
-        }
-        const exists = comprobantesEncontrados.get(pageNum)!.some((c) => c.comprobante === normalized);
-        if (!exists) {
-          comprobantesEncontrados.get(pageNum)!.push({
-            comprobante: normalized,
-            pagina: pageNum,
-            fecha: fechas[0],
-            importe: importes[0],
-          });
+      const fallbackPatterns = [
+        /([EeFfBb][0-9]{2,4})\s*[-]?\s*(\d{2,})/g,
+        /\b([EeFfBb][A-Za-z]?0*[0-9]+)\s+(\d{2,6})\b/g,
+      ];
+      for (const regex of fallbackPatterns) {
+        let m;
+        while ((m = regex.exec(pageText)) !== null) {
+          const normalized = normalizeComprobante(`${m[1]}-${m[2]}`);
+          if (!comprobantesEncontrados.has(pageNum)) {
+            comprobantesEncontrados.set(pageNum, []);
+          }
+          const exists = comprobantesEncontrados.get(pageNum)!.some((c) => c.comprobante === normalized);
+          if (!exists) {
+            comprobantesEncontrados.get(pageNum)!.push({
+              comprobante: normalized,
+              pagina: pageNum,
+              fecha: fechas[0],
+              importe: importes[0],
+            });
+          }
         }
       }
     }

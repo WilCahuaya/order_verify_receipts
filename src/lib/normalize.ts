@@ -31,25 +31,60 @@ export function normalizeComprobante(comprobante: string): string {
 }
 
 /**
- * Extrae posibles comprobantes de un texto usando regex
- * Detecta formatos: E001-447, E001 - 447, E001-000447, E0001 - 00000447
+ * Extrae posibles comprobantes de un texto usando regex.
+ * Incluye patrones para manejar errores de OCR (í→1, l→1, {→-, r→1, etc.)
  */
 export function extractComprobantesFromText(text: string): Array<{ comprobante: string; normalized: string }> {
   const results: Array<{ comprobante: string; normalized: string }> = [];
   const seen = new Set<string>();
 
-  // Regex flexible para detectar comprobantes
-  // Patrón: letras/números opcionales, espacios opcionales, guión, espacios opcionales, números
-  const regex = /([A-Za-z][A-Za-z0-9]*)\s*-\s*(\d+)/g;
-  let match;
+  // Limpiar texto para errores comunes de OCR
+  const cleanedText = text
+    .replace(/[íìïîÍÌÏÎ¡]/g, "1")
+    .replace(/[{}]/g, "-")
+    .replace(/[–—]/g, "-")
+    .replace(/([A-Za-z]0+)[rRlI](?=[0-9-]|$)/g, "$11")
+    .replace(/([A-Za-z])[lI](?=\d)/g, "$11")
+    .replace(/Bol(?=-\d)/g, "B01");
 
-  while ((match = regex.exec(text)) !== null) {
-    const raw = match[0];
+  function addResult(serie: string, correlativo: string) {
+    serie = serie.replace(/[rRlI]/g, "1").replace(/O(?=\d)/g, "0");
+    correlativo = correlativo.replace(/[lIO]/g, (c) => (c === "O" ? "0" : "1"));
+
+    if (!/^[A-Za-z][A-Za-z0-9]*$/.test(serie)) return;
+    if (!/^\d+$/.test(correlativo) || correlativo.length < 2) return;
+
+    const raw = `${serie}-${correlativo}`;
     const normalized = normalizeComprobante(raw);
     if (!seen.has(normalized)) {
       seen.add(normalized);
       results.push({ comprobante: raw, normalized });
     }
+  }
+
+  // Patrón 1: Estándar E001-677, EB01-51
+  const re1 = /([A-Za-z][A-Za-z0-9]*)\s*-\s*(\d+)/g;
+  let m;
+  while ((m = re1.exec(cleanedText)) !== null) {
+    addResult(m[1], m[2]);
+  }
+
+  // Patrón 2: E001-xxx con basura (ej: E001-Iig .jCI,J283) - extraer último grupo de dígitos
+  const re2 = /([EeFfBb][A-Za-z]?0*[0-9]+)\s*[-]?\s*[^\d]*?(\d{2,6})/g;
+  while ((m = re2.exec(cleanedText)) !== null) {
+    addResult(m[1], m[2]);
+  }
+
+  // Patrón 3: EBol-51, E00r-677 (r/l como 1)
+  const re3 = /([EeFfBb][A-Za-z]?0*[0-9rRlI]+)\s*-\s*(\d+)/g;
+  while ((m = re3.exec(cleanedText)) !== null) {
+    addResult(m[1], m[2]);
+  }
+
+  // Patrón 4: Nro: E001-677 o Nro: E001 . 677
+  const re4 = /(?:Nro|N°|Nº)\s*:\s*([A-Za-z][A-Za-z0-9]*)\s*[-.]?\s*(\d+)/gi;
+  while ((m = re4.exec(cleanedText)) !== null) {
+    addResult(m[1], m[2]);
   }
 
   return results;
