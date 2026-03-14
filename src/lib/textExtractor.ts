@@ -33,6 +33,54 @@ export function extractFechas(text: string): string[] {
 }
 
 /**
+ * Extrae RUC/DNI del texto (11 dígitos RUC, 8 dígitos DNI)
+ * Prioriza el que aparece cerca de "Señor", "Cliente", "RUC"
+ */
+export function extractRuc(text: string): string {
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/Señor|Cliente|Razón Social|RUC|Identificado/i.test(line) || (i > 0 && /Señor|Cliente/i.test(lines[i - 1]))) {
+      const ruc11 = line.match(/\b(\d{11})\b/);
+      if (ruc11) return ruc11[1];
+      const dni8 = line.match(/\b(\d{8})\b/);
+      if (dni8) return dni8[1];
+    }
+  }
+  const ruc = text.match(/\b(\d{11})\b/);
+  if (ruc) return ruc[1];
+  const dni = text.match(/\b(\d{8})\b/);
+  return dni ? dni[1] : "";
+}
+
+/**
+ * Extrae Razón Social / Nombre del proveedor o cliente
+ * Busca después de "Señor(es):", "Cliente:", "Razón Social:"
+ */
+export function extractRazonSocial(text: string): string {
+  const match = text.match(/(?:Señor\(es\)|Cliente|Razón Social|Razon Social)\s*[:\s]*([A-Za-zÁÉÍÓÚáéíóúÑñ0-9\s\.\-&,]+?)(?:\n|RUC|$|Dirección)/i);
+  if (match) {
+    return match[1].trim().replace(/\s+/g, " ").substring(0, 80);
+  }
+  return "";
+}
+
+/**
+ * Extrae el Importe Total principal del documento
+ * Busca "Importe Total:", "Total:", "s/ XX.XX"
+ */
+export function extractImporteTotal(text: string): number {
+  const totalMatch = text.match(/(?:Importe Total|Total|Total a pagar|Total CP)\s*[:\s]*(?:s\/?\s*)?(\d+[.,]\d{2})/i);
+  if (totalMatch) {
+    return parseFloat(totalMatch[1].replace(",", "."));
+  }
+  const sMatch = text.match(/s\/\s*(\d+[.,]\d{2})\b/i);
+  if (sMatch) return parseFloat(sMatch[1].replace(",", "."));
+  const importes = extractImportes(text);
+  return importes.length > 0 ? importes[0] : 0;
+}
+
+/**
  * Extrae importes del texto (números con decimales, formato 1,234.56 o 1234.56)
  */
 export function extractImportes(text: string): number[] {

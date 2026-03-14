@@ -3,7 +3,8 @@ import type { ResultadoVerificacion } from "./types";
 
 export async function generateVerificationExcel(
   excelFile: File,
-  resultados: ResultadoVerificacion[]
+  resultados: ResultadoVerificacion[],
+  comprobantesSoloEnPdf: Array<{ comprobante: string; pagina: number; fecha?: string; importe?: number }> = []
 ): Promise<Blob> {
   const arrayBuffer = await excelFile.arrayBuffer();
   const workbook = new ExcelJS.Workbook();
@@ -80,6 +81,28 @@ export async function generateVerificationExcel(
       fgColor: { argb: fillColor },
     };
   });
+
+  // Hoja adicional: Comprobantes en PDF que no están en el Excel
+  if (comprobantesSoloEnPdf.length > 0) {
+    const sheetSoloPdf = workbook.addWorksheet("Solo en PDF", { state: "visible" });
+    sheetSoloPdf.columns = [
+      { header: "Comprobante", key: "comprobante", width: 15 },
+      { header: "Pagina PDF", key: "pagina", width: 12 },
+      { header: "Fecha", key: "fecha", width: 12 },
+      { header: "Importe", key: "importe", width: 12 },
+      { header: "Observacion", key: "observacion", width: 30 },
+    ];
+    sheetSoloPdf.getRow(1).font = { bold: true };
+    comprobantesSoloEnPdf.forEach((c) => {
+      sheetSoloPdf.addRow({
+        comprobante: c.comprobante,
+        pagina: c.pagina,
+        fecha: c.fecha ?? "",
+        importe: c.importe ?? "",
+        observacion: "Encontrado en PDF pero no está en el Excel",
+      });
+    });
+  }
 
   const buffer = await workbook.xlsx.writeBuffer();
   return new Blob([buffer], {

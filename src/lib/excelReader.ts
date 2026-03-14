@@ -33,6 +33,19 @@ const COLUMN_MAPPINGS = {
     "BI Gravado DNG",
     "Total Ventas",
   ],
+  nroDocIdentidad: [
+    "Nro Doc Identidad",
+    "RUC",
+    "DNI",
+    "nro doc identidad",
+  ],
+  razonSocial: [
+    "Apellidos Nombres/ Razón Social",
+    "Razón Social",
+    "Razon Social",
+    "Proveedor",
+    "Cliente",
+  ],
 };
 
 function findColumnIndex(worksheet: ExcelJS.Worksheet, possibleNames: string[]): number {
@@ -112,6 +125,8 @@ export async function readComprobantesFromExcel(file: File): Promise<Comprobante
   const correlativoCol = findColumnIndex(worksheet, COLUMN_MAPPINGS.correlativo);
   const fechaCol = findColumnIndex(worksheet, COLUMN_MAPPINGS.fecha);
   const importeCol = findColumnIndex(worksheet, COLUMN_MAPPINGS.importe);
+  const nroDocCol = findColumnIndex(worksheet, COLUMN_MAPPINGS.nroDocIdentidad);
+  const razonSocialCol = findColumnIndex(worksheet, COLUMN_MAPPINGS.razonSocial);
 
   if (serieCol === -1 || correlativoCol === -1) {
     throw new Error(
@@ -144,6 +159,8 @@ export async function readComprobantesFromExcel(file: File): Promise<Comprobante
 
     const fechaEmision = fechaCol !== -1 ? parseDate(getCellValue(rowData.getCell(fechaCol).value)) : "";
     const importeTotal = importeCol !== -1 ? parseNumber(getCellValue(rowData.getCell(importeCol).value)) : 0;
+    const nroDocIdentidad = nroDocCol !== -1 ? String(getCellValue(rowData.getCell(nroDocCol).value)).trim() : "";
+    const razonSocial = razonSocialCol !== -1 ? String(getCellValue(rowData.getCell(razonSocialCol).value)).trim() : "";
 
     comprobantes.push({
       serie,
@@ -151,6 +168,8 @@ export async function readComprobantesFromExcel(file: File): Promise<Comprobante
       comprobante,
       fechaEmision,
       importeTotal,
+      nroDocIdentidad,
+      razonSocial,
       rowIndex: row,
     });
   }

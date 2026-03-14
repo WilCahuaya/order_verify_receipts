@@ -4,7 +4,7 @@ import { useState } from "react";
 import { FileUpload } from "./FileUpload";
 import { processVerification } from "@/lib/verificationProcessor";
 import { generateVerificationExcel } from "@/lib/excelGenerator";
-import type { ResultadoVerificacion } from "@/lib/types";
+import type { ResultadoVerificacionCompleto } from "@/lib/types";
 
 export function VerificationProcessor() {
   const [excelFile, setExcelFile] = useState<File | null>(null);
@@ -12,7 +12,7 @@ export function VerificationProcessor() {
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState({ message: "", percent: 0 });
   const [error, setError] = useState<string | null>(null);
-  const [resultados, setResultados] = useState<ResultadoVerificacion[] | null>(null);
+  const [resultados, setResultados] = useState<ResultadoVerificacionCompleto | null>(null);
 
   const handleProcess = async () => {
     if (!excelFile || !pdfFile) {
@@ -25,12 +25,12 @@ export function VerificationProcessor() {
     setProcessing(true);
 
     try {
-      const results = await processVerification(
+      const { resultados: results, comprobantesSoloEnPdf } = await processVerification(
         excelFile,
         pdfFile,
         (message, percent) => setProgress({ message, percent })
       );
-      setResultados(results);
+      setResultados({ resultados: results, comprobantesSoloEnPdf });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al procesar");
     } finally {
@@ -42,7 +42,11 @@ export function VerificationProcessor() {
     if (!excelFile || !resultados) return;
 
     try {
-      const blob = await generateVerificationExcel(excelFile, resultados);
+      const blob = await generateVerificationExcel(
+        excelFile,
+        resultados.resultados,
+        resultados.comprobantesSoloEnPdf
+      );
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -54,11 +58,14 @@ export function VerificationProcessor() {
     }
   };
 
-  const correctos = resultados?.filter((r) => r.estado === "CORRECTO").length ?? 0;
-  const conDiferencias = resultados?.filter(
-    (r) => r.estado === "FECHA DIFERENTE" || r.estado === "TOTAL DIFERENTE"
-  ).length ?? 0;
-  const noEncontrados = resultados?.filter((r) => r.estado === "NO ENCONTRADO").length ?? 0;
+  const correctos = resultados?.resultados.filter((r) => r.estado === "CORRECTO").length ?? 0;
+  const conDiferencias =
+    resultados?.resultados.filter(
+      (r) => r.estado === "FECHA DIFERENTE" || r.estado === "TOTAL DIFERENTE"
+    ).length ?? 0;
+  const noEncontrados =
+    resultados?.resultados.filter((r) => r.estado === "NO ENCONTRADO").length ?? 0;
+  const soloEnPdf = resultados?.comprobantesSoloEnPdf.length ?? 0;
 
   return (
     <div className="w-full max-w-2xl mx-auto space-y-6">
@@ -114,10 +121,10 @@ export function VerificationProcessor() {
       {resultados && (
         <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-8">
           <h3 className="text-lg font-bold text-slate-800 mb-4">Resultados</h3>
-          <div className="grid grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-2 gap-4 mb-6 sm:grid-cols-4">
             <div className="rounded-lg bg-green-50 p-4 border border-green-200">
               <p className="text-2xl font-bold text-green-700">{correctos}</p>
-              <p className="text-sm text-green-600">Correctos</p>
+              <p className="text-sm text-green-600">Correctos (Excel + PDF)</p>
             </div>
             <div className="rounded-lg bg-amber-50 p-4 border border-amber-200">
               <p className="text-2xl font-bold text-amber-700">{conDiferencias}</p>
@@ -125,9 +132,28 @@ export function VerificationProcessor() {
             </div>
             <div className="rounded-lg bg-red-50 p-4 border border-red-200">
               <p className="text-2xl font-bold text-red-700">{noEncontrados}</p>
-              <p className="text-sm text-red-600">No encontrados</p>
+              <p className="text-sm text-red-600">No encontrados en PDF</p>
+            </div>
+            <div className="rounded-lg bg-blue-50 p-4 border border-blue-200">
+              <p className="text-2xl font-bold text-blue-700">{soloEnPdf}</p>
+              <p className="text-sm text-blue-600">Solo en PDF (no en Excel)</p>
             </div>
           </div>
+
+          {soloEnPdf > 0 && (
+            <div className="mb-6 rounded-lg bg-blue-50 border border-blue-200 p-4">
+              <p className="text-sm font-medium text-blue-800 mb-2">
+                Comprobantes en PDF que no están en el Excel:
+              </p>
+              <ul className="text-sm text-blue-700 max-h-32 overflow-y-auto space-y-1">
+                {resultados.comprobantesSoloEnPdf.map((c) => (
+                  <li key={`${c.comprobante}-${c.pagina}`}>
+                    {c.comprobante} (pág. {c.pagina})
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <button
             onClick={handleDownload}

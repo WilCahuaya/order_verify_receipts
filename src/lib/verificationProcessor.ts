@@ -1,15 +1,22 @@
 "use client";
 
 import * as pdfjsLib from "pdfjs-dist";
-import { createWorker } from "tesseract.js";
+import { createWorker, PSM } from "tesseract.js";
 import { readComprobantesFromExcel } from "./excelReader";
 import { extractComprobantesFromText, normalizeComprobante } from "./normalize";
-import { extractFechas, extractImportes } from "./textExtractor";
+import {
+  extractFechas,
+  extractImportes,
+  extractImporteTotal,
+  extractRuc,
+  extractRazonSocial,
+} from "./textExtractor";
 import type {
   ComprobanteEncontrado,
   ComprobanteExcel,
   EstadoVerificacion,
   ResultadoVerificacion,
+  ResultadoVerificacionCompleto,
 } from "./types";
 
 // Configurar worker de pdfjs (unpkg para compatibilidad con Vercel/Next.js)
@@ -36,7 +43,7 @@ export async function processVerification(
   excelFile: File,
   pdfFile: File,
   onProgress: (message: string, percent: number) => void
-): Promise<ResultadoVerificacion[]> {
+): Promise<ResultadoVerificacionCompleto> {
   onProgress("Leyendo archivo Excel...", 0);
   const comprobantesExcel = await readComprobantesFromExcel(excelFile);
   const comprobantesMap = new Map<string, ComprobanteExcel>();
@@ -49,9 +56,11 @@ export async function processVerification(
   const numPages = pdfDoc.numPages;
 
   onProgress("Iniciando OCR (Tesseract)...", 10);
-  const worker = await createWorker("spa", 1, {
+  const worker = await createWorker("spa+eng", 1, {
     logger: () => {},
   });
+  // PSM 4 = columna única, mejor para facturas/boletas
+  await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_COLUMN });
 
   const comprobantesEncontrados = new Map<number, ComprobanteEncontrado[]>();
 
@@ -68,17 +77,17 @@ export async function processVerification(
       const textItems = textContent.items
         .map((item) => ("str" in item ? (item as { str: string }).str : ""))
         .join(" ");
-      if (textItems.trim().length > 20) {
+      if (textItems.trim().length > 10) {
         pageText = textItems;
       }
     } catch {
       // Ignorar, usaremos OCR
     }
 
-    // Si no hay texto suficiente, usar OCR (scale 3 para mejor precisión en escaneos)
-    if (pageText.trim().length < 50) {
+    // Si no hay texto suficiente, usar OCR (scale 4 = ~300 DPI para mejor precisión)
+    if (pageText.trim().length < 30) {
       const page = await pdfDoc.getPage(pageNum);
-      const viewport = page.getViewport({ scale: 3 });
+      const viewport = page.getViewport({ scale: 4 });
       const canvas = document.createElement("canvas");
       const context = canvas.getContext("2d");
       if (!context) continue;
@@ -94,18 +103,34 @@ export async function processVerification(
       const imageData = canvas.toDataURL("image/png");
       const { data } = await worker.recognize(imageData);
       pageText = data.text;
+
+      // Si no encontramos comprobantes con PSM 4, intentar PSM 6 (bloque único)
+      let encontradosPrimera = extractComprobantesFromText(pageText);
+      if (encontradosPrimera.length === 0) {
+        await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
+        const { data: data2 } = await worker.recognize(imageData);
+        const pageText2 = data2.text;
+        await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_COLUMN });
+        const encontrados2 = extractComprobantesFromText(pageText2);
+        if (encontrados2.length > 0) pageText = pageText2;
+      }
     }
 
     const encontrados = extractComprobantesFromText(pageText);
     const fechas = extractFechas(pageText);
     const importes = extractImportes(pageText);
+    const importeTotal = extractImporteTotal(pageText) || importes[0];
+    const ruc = extractRuc(pageText);
+    const razonSocial = extractRazonSocial(pageText);
 
     for (const { normalized } of encontrados) {
       const comprobanteEncontrado: ComprobanteEncontrado = {
         comprobante: normalized,
         pagina: pageNum,
         fecha: fechas[0],
-        importe: importes[0],
+        importe: importeTotal || importes[0],
+        ruc: ruc || undefined,
+        razonSocial: razonSocial || undefined,
       };
       if (!comprobantesEncontrados.has(pageNum)) {
         comprobantesEncontrados.set(pageNum, []);
@@ -132,7 +157,9 @@ export async function processVerification(
               comprobante: normalized,
               pagina: pageNum,
               fecha: fechas[0],
-              importe: importes[0],
+              importe: importeTotal || importes[0],
+              ruc: ruc || undefined,
+              razonSocial: razonSocial || undefined,
             });
           }
         }
@@ -145,19 +172,68 @@ export async function processVerification(
 
   onProgress("Comparando resultados...", 98);
 
-  // Construir mapa comprobante -> página
-  const comprobanteToPage = new Map<string, ComprobanteEncontrado>();
-  comprobantesEncontrados.forEach((lista, _page) => {
-    lista.forEach((c) => {
-      const existing = comprobanteToPage.get(c.comprobante);
-      if (!existing || c.pagina < existing.pagina) {
-        comprobanteToPage.set(c.comprobante, c);
-      }
-    });
+  // Lista plana de todos los comprobantes encontrados en PDF (puede haber duplicados por proveedor)
+  const todosEncontrados: ComprobanteEncontrado[] = [];
+  comprobantesEncontrados.forEach((lista) => lista.forEach((c) => todosEncontrados.push(c)));
+
+  function rucCoincide(rucPdf: string | undefined, rucExcel: string): boolean {
+    if (!rucExcel) return true;
+    if (!rucPdf) return false;
+    return rucPdf === rucExcel || rucPdf.endsWith(rucExcel) || rucExcel.endsWith(rucPdf);
+  }
+
+  function razonSocialCoincide(razonPdf: string | undefined, razonExcel: string): boolean {
+    if (!razonExcel) return true;
+    if (!razonPdf) return false;
+    const pdfNorm = razonPdf.toLowerCase().replace(/\s+/g, " ").trim();
+    const excelNorm = razonExcel.toLowerCase().replace(/\s+/g, " ").trim();
+    return pdfNorm.includes(excelNorm) || excelNorm.includes(pdfNorm);
+  }
+
+  const pdfUsados = new Set<ComprobanteEncontrado>();
+
+  function encontrarMejorMatch(comp: ComprobanteExcel): ComprobanteEncontrado | undefined {
+    const candidatos = todosEncontrados.filter(
+      (c) =>
+        !pdfUsados.has(c) &&
+        (c.comprobante === comp.comprobante ||
+          (comp.correlativo && c.comprobante.endsWith(`-${comp.correlativo}`)))
+    );
+    if (candidatos.length === 0) return undefined;
+    if (candidatos.length === 1) {
+      pdfUsados.add(candidatos[0]);
+      return candidatos[0];
+    }
+
+    // Hay duplicados: priorizar por Nro Doc Identidad y Razón Social
+    const conRuc = candidatos.filter((c) => rucCoincide(c.ruc, comp.nroDocIdentidad));
+    const conRazon = candidatos.filter((c) => razonSocialCoincide(c.razonSocial, comp.razonSocial));
+    const conAmbos = conRuc.filter((c) => razonSocialCoincide(c.razonSocial, comp.razonSocial));
+
+    const elegido = conAmbos[0] || conRuc[0] || conRazon[0] || candidatos[0];
+    pdfUsados.add(elegido);
+    return elegido;
+  }
+
+  // Comprobantes en PDF que no están en Excel (únicos por comprobante)
+  const comprobantesExcelSet = new Set(comprobantesExcel.map((c) => c.comprobante));
+  const comprobantesSoloEnPdf: ResultadoVerificacionCompleto["comprobantesSoloEnPdf"] = [];
+  const seenSolo = new Set<string>();
+  todosEncontrados.forEach((c) => {
+    if (!comprobantesExcelSet.has(c.comprobante) && !seenSolo.has(c.comprobante)) {
+      seenSolo.add(c.comprobante);
+      comprobantesSoloEnPdf.push({
+        comprobante: c.comprobante,
+        pagina: c.pagina,
+        fecha: c.fecha,
+        importe: c.importe,
+      });
+    }
   });
+  comprobantesSoloEnPdf.sort((a, b) => a.pagina - b.pagina);
 
   const resultados: ResultadoVerificacion[] = comprobantesExcel.map((comp) => {
-    const encontrado = comprobanteToPage.get(comp.comprobante);
+    const encontrado = encontrarMejorMatch(comp);
 
     if (!encontrado) {
       return {
@@ -198,5 +274,5 @@ export async function processVerification(
   });
 
   onProgress("Completado", 100);
-  return resultados;
+  return { resultados, comprobantesSoloEnPdf };
 }

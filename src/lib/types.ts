@@ -4,6 +4,8 @@ export interface ComprobanteExcel {
   comprobante: string; // SERIE-CORRELATIVO normalizado
   fechaEmision: string;
   importeTotal: number;
+  nroDocIdentidad: string; // RUC/DNI del proveedor
+  razonSocial: string; // Nombre o razón social del proveedor
   rowIndex: number;
 }
 
@@ -22,4 +24,16 @@ export interface ComprobanteEncontrado {
   pagina: number;
   fecha?: string;
   importe?: number;
+  ruc?: string;
+  razonSocial?: string;
+}
+
+export interface ResultadoVerificacionCompleto {
+  resultados: ResultadoVerificacion[];
+  comprobantesSoloEnPdf: Array<{
+    comprobante: string;
+    pagina: number;
+    fecha?: string;
+    importe?: number;
+  }>;
 }
